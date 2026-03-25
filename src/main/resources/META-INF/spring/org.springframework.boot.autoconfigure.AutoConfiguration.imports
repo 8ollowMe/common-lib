@@ -1,0 +1,2 @@
+com.followMe.common.autoconfigure.CommonWebAutoConfiguration
+com.followMe.common.autoconfigure.CommonKafkaAutoConfiguration
