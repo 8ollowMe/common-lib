@@ -8,6 +8,8 @@ import org.springframework.data.annotation.CreatedBy;
 import org.springframework.data.annotation.LastModifiedBy;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
+import java.util.UUID;
+
 /**
  * 생성/수정 시각 + 작성자 정보까지 관리하는 기반 엔티티.
  *
@@ -28,16 +30,16 @@ public abstract class BaseAudit extends BaseTime {
 
     @CreatedBy
     @Column(nullable = false, updatable = false, length = 100)
-    private String createdBy;
+    private UUID createdBy;
 
     @LastModifiedBy
     @Column(nullable = false, length = 100)
-    private String updatedBy;
+    private UUID updatedBy;
 
     @Column(length = 100)
-    private String deletedBy;
+    private UUID deletedBy;
 
-    public void softDelete(String deletedBy) {
+    public void softDelete(UUID deletedBy) {
         super.softDelete();
         this.deletedBy = deletedBy;
     }
