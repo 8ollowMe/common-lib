@@ -29,4 +29,9 @@ public interface ErrorCode {
 
     /** HTTP 상태 코드 */
     HttpStatus getHttpStatus();
+
+    /** BusinessException 으로 변환 */
+    default BusinessException toException() {
+        return new BusinessException(this);
+    }
 }
