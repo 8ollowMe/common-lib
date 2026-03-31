@@ -3,7 +3,7 @@ plugins {
     `maven-publish`
 }
 
-group = "com.followMe" 
+group = "com.followMe"
 version = "1.0.0"
 
 java {
@@ -79,12 +79,27 @@ publishing {
     repositories {
         // 로컬 Maven 저장소 (~/.m2) 에 배포
         mavenLocal()
-        maven {
-            url = uri("https://maven.pkg.github.com/8ollowMe/common-lib")
-            credentials {
-                username = project.findProperty("gpr.user") as String?
-                password = project.findProperty("gpr.key") as String?
+        // providers.gradleProperty()로 읽어야 non-null String이 보장되어
+        // Gradle 9의 credentials.username 검증을 통과함
+        // CI에서는 ORG_GRADLE_PROJECT_* 환경변수로 주입, 없으면 저장소 자체를 추가 안 함
+        val githubUser = providers.gradleProperty("GitHubPackagesUsername").orNull
+        val githubPass = providers.gradleProperty("GitHubPackagesPassword").orNull
+        println(">>> [DEBUG] GITHUB_ACTOR env       = ${System.getenv("GITHUB_ACTOR")}")
+        println(">>> [DEBUG] GITHUB_TOKEN env        = ${if (System.getenv("GITHUB_TOKEN") != null) "SET(${System.getenv("GITHUB_TOKEN")!!.length}chars)" else "NULL"}")
+        println(">>> [DEBUG] GitHubPackagesUsername  = $githubUser")
+        println(">>> [DEBUG] GitHubPackagesPassword  = ${if (githubPass != null) "SET(${githubPass.length}chars)" else "NULL"}")
+        if (githubUser != null && githubPass != null) {
+            println(">>> [DEBUG] GitHubPackages 저장소 추가됨 → PublishToMavenRepository task 생성")
+            maven {
+                name = "GitHubPackages"
+                url = uri("https://maven.pkg.github.com/8ollowMe/common-lib")
+                credentials {
+                    username = githubUser
+                    password = githubPass
+                }
             }
+        } else {
+            println(">>> [DEBUG] GitHubPackages 저장소 건너뜀 (프로퍼티 없음) → task 미생성")
         }
     }
 }
