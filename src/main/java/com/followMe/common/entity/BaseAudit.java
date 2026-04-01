@@ -1,5 +1,6 @@
 package com.followMe.common.entity;
 
+import com.querydsl.core.annotations.QuerySupertype;
 import jakarta.persistence.Access;
 import jakarta.persistence.AccessType;
 import jakarta.persistence.Column;
@@ -26,6 +27,7 @@ import java.util.UUID;
  * }</pre>
  */
 @Getter
+@QuerySupertype
 @MappedSuperclass
 @Access(AccessType.FIELD)
 @EntityListeners(AuditingEntityListener.class)
