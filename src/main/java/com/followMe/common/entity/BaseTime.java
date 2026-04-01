@@ -1,5 +1,7 @@
 package com.followMe.common.entity;
 
+import jakarta.persistence.Access;
+import jakarta.persistence.AccessType;
 import jakarta.persistence.Column;
 import jakarta.persistence.EntityListeners;
 import jakarta.persistence.MappedSuperclass;
@@ -23,6 +25,7 @@ import java.time.Instant;
  */
 @Getter
 @MappedSuperclass
+@Access(AccessType.FIELD)
 @EntityListeners(AuditingEntityListener.class)
 public abstract class BaseTime {
 
