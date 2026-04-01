@@ -234,42 +234,96 @@ boolean valid = TimeUtil.isBetween(Instant.now(), event.getStartAt(), event.getE
 
 ---
 
-### Kafka 이벤트
+### Kafka 이벤트 (Outbox 패턴)
 
 `spring-kafka` 의존성이 있는 서비스에서만 자동 활성화됩니다.
+트랜잭션 커밋 이후 Kafka 발행을 보장하며, 실패 시 자동 재시도합니다.
 
-이벤트 정의:
+#### 1. 메인 클래스 설정
+
+```java
+@EnableJpaAuditing
+@EnableScheduling   // OutboxRelayScheduler 동작에 필요
+@SpringBootApplication
+@EntityScan(basePackages = "com.followMe")  // 서비스 엔티티 + Outbox/Inbox 모두 스캔
+public class MyServiceApplication { ... }
+```
+
+#### 2. 이벤트 클래스 정의
+
+`BaseEvent`를 상속하고 `domainType`(어떤 도메인인지), `domainId`(대상 ID)를 생성자에서 지정합니다.
+`eventType`은 클래스명으로 자동 설정되며 Kafka 토픽명으로 사용됩니다.
 
 ```java
 @Getter
 public class OrderCreatedEvent extends BaseEvent {
-    private final UUID orderId;
-    private final UUID userId;
+    private final String customerName;
+    private final int totalPrice;
 
-    public OrderCreatedEvent(UUID orderId, UUID userId) {
-        super();
-        this.orderId = orderId;
-        this.userId = userId;
+    public OrderCreatedEvent(UUID orderId, String customerName, int totalPrice) {
+        super("ORDER", orderId);  // domainType, domainId(UUID 가능)
+        this.customerName = customerName;
+        this.totalPrice = totalPrice;
     }
 }
 ```
 
-발행:
+#### 3. 이벤트 발행
+
+`@Transactional` 안에서 `Events.trigger()`를 호출하세요.
+트랜잭션이 **커밋된 이후**에 Outbox DB 저장 → Kafka 발행이 순서대로 실행됩니다.
 
 ```java
 @Service
 @RequiredArgsConstructor
 public class OrderService {
-    private final KafkaEventPublisher eventPublisher;
 
-    public void createOrder(...) {
-        // ... 주문 생성 로직
-        eventPublisher.publish("order-events", new OrderCreatedEvent(order.getId(), userId));
+    @Transactional
+    public void createOrder(CreateOrderRequest request) {
+        Order order = orderRepository.save(Order.from(request));
+
+        Events.trigger(
+            new OrderCreatedEvent(order.getId(), request.getCustomerName(), order.getTotalPrice())
+                .withCorrelationId(request.getCorrelationId())  // 선택사항
+        );
     }
 }
 ```
 
-application.yml Kafka 직렬화 설정:
+> ⚠️ `@Transactional` 없이 호출하면 `OutboxEventListener`가 동작하지 않습니다.
+
+#### 4. 이벤트 소비 (중복 방지 포함)
+
+`InboxRepository`로 동일 이벤트가 중복 처리되는 것을 방지합니다.
+
+```java
+@Service
+@RequiredArgsConstructor
+public class NotificationConsumer {
+    private final InboxRepository inboxRepository;
+    private final NotificationService notificationService;
+
+    @Transactional
+    @KafkaListener(topics = "OrderCreatedEvent", groupId = "notification-service")
+    public void consume(OrderCreatedEvent event) {
+        UUID eventId = UUID.fromString(event.getEventId());
+
+        // 중복 처리 방지
+        if (inboxRepository.existsByIdAndMessageGroup(eventId, "OrderCreatedEvent")) {
+            return;
+        }
+
+        notificationService.sendOrderConfirmation(event);
+
+        inboxRepository.save(Inbox.builder()
+            .id(eventId)
+            .messageGroup("OrderCreatedEvent")
+            .build());
+    }
+}
+```
+
+#### 5. application.yml Kafka 설정
 
 ```yaml
 spring:
@@ -279,6 +333,19 @@ spring:
       value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
       properties:
         spring.json.add.type.headers: false
+```
+
+#### 동작 흐름
+
+```
+Events.trigger(event)
+  → ApplicationEventPublisher (Spring 내부)
+    → OutboxEventListener (트랜잭션 커밋 후)
+        ├── p_outbox 테이블에 PENDING 저장
+        └── Kafka 발행 → 성공: PROCESSED / 실패: FAILED
+              ↑
+OutboxRelayScheduler (10초마다)
+  └── PENDING/FAILED 중 재시도 3회 미만인 것 재발행
 ```
 
 ---
