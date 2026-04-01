@@ -21,6 +21,7 @@ repositories {
 // Spring Boot BOM을 version catalog로 관리 (소비자에게 강제하지 않음)
 val springBootVersion = "3.5.1"
 val lombokVersion = "1.18.34"
+val querydslVersion = "5.1.0"
 
 dependencies {
     // ── BOM (소비자에게 전이되지 않음, 라이브러리 컴파일용) ──────────────────
@@ -38,6 +39,12 @@ dependencies {
     compileOnly("jakarta.persistence:jakarta.persistence-api")
     compileOnly("org.springframework.data:spring-data-commons")
     compileOnly("org.springframework.data:spring-data-jpa")
+
+    // ── QueryDSL (Q 슈퍼타입 클래스 생성 — QBaseTime, QBaseAudit) ───────────
+    compileOnly("com.querydsl:querydsl-jpa:$querydslVersion:jakarta")
+    annotationProcessor("com.querydsl:querydsl-apt:$querydslVersion:jakarta")
+    annotationProcessor("jakarta.persistence:jakarta.persistence-api")
+    api ("com.querydsl:querydsl-core:$querydslVersion")
 
     // ── Spring Web/MVC (GlobalExceptionHandler 용) ───────────────────────────
     compileOnly("org.springframework:spring-web")
