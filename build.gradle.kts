@@ -44,6 +44,7 @@ dependencies {
     compileOnly("com.querydsl:querydsl-jpa:$querydslVersion:jakarta")
     annotationProcessor("com.querydsl:querydsl-apt:$querydslVersion:jakarta")
     annotationProcessor("jakarta.persistence:jakarta.persistence-api")
+    api ("com.querydsl:querydsl-core:$querydslVersion")
 
     // ── Spring Web/MVC (GlobalExceptionHandler 용) ───────────────────────────
     compileOnly("org.springframework:spring-web")
