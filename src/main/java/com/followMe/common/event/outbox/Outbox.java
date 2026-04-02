@@ -30,7 +30,7 @@ public class Outbox {
 	@Column(length = 50, nullable = false)
 	private String domainType;
 
-	@Column(length = 50, nullable = false)
+	@Column(length = 50)
 	private String domainId;
 
 	@Column(length = 100, nullable = false)

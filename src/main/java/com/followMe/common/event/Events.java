@@ -1,6 +1,6 @@
 package com.followMe.common.event;
 
-import com.followMe.common.event.exception.EventPublishFailureEvent;
+import com.followMe.common.event.exception.EventPublishFailureException;
 import com.followMe.common.event.outbox.OutboxEvent;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
@@ -20,7 +20,7 @@ public class Events {
 
 	public static void trigger(BaseEvent event) {
 		if (publisher == null) {
-			throw new EventPublishFailureEvent("ApplicationEventPublisher is not initialized yet.");
+			throw new EventPublishFailureException("ApplicationEventPublisher is not initialized yet.");
 		}
 		publisher.publishEvent(new OutboxEvent(event));
 	}

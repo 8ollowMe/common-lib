@@ -244,7 +244,7 @@ boolean valid = TimeUtil.isBetween(Instant.now(), event.getStartAt(), event.getE
 ```java
 @EnableJpaAuditing
 @EnableScheduling   // OutboxRelayScheduler 동작에 필요
-@SpringBootApplication
+@SpringBootApplication(scanBasePackages = "com.followMe")
 @EntityScan(basePackages = "com.followMe")  // 서비스 엔티티 + Outbox/Inbox 모두 스캔
 public class MyServiceApplication { ... }
 ```
