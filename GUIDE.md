@@ -16,7 +16,7 @@
    - [공통 엔티티 (BaseTime / BaseAudit)](#43-공통-엔티티-basetime--baseaudit)
    - [페이지네이션 (PageRequest / PageResponse)](#44-페이지네이션-pagerequest--pageresponse)
    - [시간 유틸 (TimeUtil)](#45-시간-유틸-timeutil)
-   - [Kafka 이벤트 (BaseEvent / KafkaEventPublisher)](#46-kafka-이벤트-baseevent--kafkaeventpublisher)
+   - [Kafka 이벤트 (Outbox 패턴)](#46-kafka-이벤트-outbox-패턴)
 5. [Auto Configuration](#5-auto-configuration)
 
 ---
@@ -36,7 +36,20 @@ common-lib
     │   └── BaseAudit.java                      # BaseTime + 작성자 정보
     ├── event/
     │   ├── BaseEvent.java                      # Kafka 이벤트 기반 클래스
-    │   └── KafkaEventPublisher.java            # Kafka 발행 유틸
+    │   ├── Events.java                         # 이벤트 발행 정적 유틸 (DDD 스타일)
+    │   ├── exception/
+    │   │   └── EventPublishFailureEvent.java   # 이벤트 발행 실패 예외
+    │   ├── outbox/
+    │   │   ├── Outbox.java                     # Outbox 엔티티 (p_outbox 테이블)
+    │   │   ├── OutboxEvent.java                # Spring 내부 이벤트 봉투
+    │   │   ├── OutboxStatus.java               # PENDING / PROCESSED / FAILED
+    │   │   ├── OutboxRepository.java
+    │   │   └── OutboxEventListener.java        # 트랜잭션 커밋 후 Kafka 발행
+    │   ├── inbox/
+    │   │   ├── Inbox.java                      # Inbox 엔티티 (p_inbox 테이블)
+    │   │   └── InboxRepository.java
+    │   └── scheduler/
+    │       └── OutboxRelayScheduler.java       # PENDING/FAILED 재발행 (10초마다)
     ├── exception/
     │   ├── ErrorCode.java                      # 에러코드 인터페이스
     │   ├── CommonErrorCode.java                # 공통 에러코드 enum
@@ -274,49 +287,122 @@ LocalDateTime now = TimeUtil.nowSeoul();
 
 ---
 
-### 4.6 Kafka 이벤트 (BaseEvent / KafkaEventPublisher)
+### 4.6 Kafka 이벤트 (Outbox 패턴)
 
-#### 이벤트 클래스 정의
+트랜잭션 커밋 이후 Kafka 발행을 보장합니다. 발행 실패 시 10초마다 자동 재시도(최대 3회)합니다.
+
+#### 소비자 서비스 메인 클래스 설정
+
+```java
+@EnableJpaAuditing
+@EnableScheduling   // OutboxRelayScheduler 동작에 필요
+@SpringBootApplication
+@EntityScan(basePackages = "com.followMe")  // 서비스 엔티티 + Outbox/Inbox 모두 스캔
+public class MyServiceApplication { ... }
+```
+
+#### 1단계: 이벤트 클래스 정의
+
+`BaseEvent`를 상속하고 생성자에서 `domainType`과 `domainId`를 지정합니다.
+`eventType`은 **클래스명이 자동으로 설정**되며 Kafka 토픽명으로 사용됩니다.
 
 ```java
 @Getter
 public class UserCreatedEvent extends BaseEvent {
-    private final Long userId;
     private final String email;
+    private final String username;
 
-    public UserCreatedEvent(Long userId, String email) {
-        super("USER_CREATED");   // eventType 지정
-        this.userId = userId;
+    public UserCreatedEvent(UUID userId, String email, String username) {
+        super("USER", userId);   // domainType, domainId (UUID 직접 전달 가능)
         this.email = email;
+        this.username = username;
     }
 }
 ```
 
-`BaseEvent`는 `eventId`(UUID), `eventType`, `occurredAt`(Instant)을 자동 생성합니다.
+| 필드 | 설명 | 설정 방법 |
+|---|---|---|
+| `eventId` | 이벤트 고유 UUID | 자동 생성 |
+| `eventType` | Kafka 토픽명 | 클래스명 자동 설정 (`UserCreatedEvent`) |
+| `domainType` | 어떤 도메인의 이벤트인지 | 생성자에서 지정 (`"USER"`) |
+| `domainId` | 대상 엔티티 ID | 생성자에서 지정 (UUID or String) |
+| `occurredAt` | 발생 시각 (UTC) | 자동 생성 |
+| `correlationId` | 분산 추적용 ID | `.withCorrelationId()` 선택 설정 |
 
-#### 이벤트 발행
+#### 2단계: 이벤트 발행
+
+반드시 `@Transactional` 안에서 `Events.trigger()`를 호출해야 합니다.
 
 ```java
 @Service
 @RequiredArgsConstructor
 public class UserService {
 
-    private final KafkaEventPublisher eventPublisher;
+    @Transactional
+    public void createUser(CreateUserRequest request) {
+        User user = userRepository.save(User.from(request));
 
-    public void createUser(...) {
-        // ... 비즈니스 로직
-        eventPublisher.publish("user.created", new UserCreatedEvent(user.getId(), user.getEmail()));
+        // 기본 발행
+        Events.trigger(new UserCreatedEvent(user.getId(), user.getEmail(), user.getUsername()));
+
+        // correlationId 포함 (분산 추적이 필요한 경우)
+        Events.trigger(
+            new UserCreatedEvent(user.getId(), user.getEmail(), user.getUsername())
+                .withCorrelationId(request.getCorrelationId())
+        );
     }
 }
 ```
 
-파티션 키는 `eventId`(UUID)로 자동 설정됩니다. 특정 키가 필요하면:
+> ⚠️ `@Transactional` 없이 호출하면 `OutboxEventListener`가 동작하지 않아 이벤트가 발행되지 않습니다.
+
+#### 3단계: 이벤트 소비 (중복 방지 포함)
+
+`InboxRepository`로 동일 이벤트의 중복 처리를 방지합니다.
 
 ```java
-eventPublisher.publish("user.created", String.valueOf(userId), event);
+@Service
+@RequiredArgsConstructor
+public class NotificationConsumer {
+    private final InboxRepository inboxRepository;
+
+    @Transactional
+    @KafkaListener(topics = "UserCreatedEvent", groupId = "notification-service")
+    public void consume(UserCreatedEvent event) {
+        UUID eventId = UUID.fromString(event.getEventId());
+
+        // 중복 처리 방지
+        if (inboxRepository.existsByIdAndMessageGroup(eventId, "UserCreatedEvent")) {
+            return;
+        }
+
+        // 비즈니스 로직 처리
+        notificationService.sendWelcomeMail(event.getEmail());
+
+        // 처리 완료 기록
+        inboxRepository.save(Inbox.builder()
+            .id(eventId)
+            .messageGroup("UserCreatedEvent")
+            .build());
+    }
+}
 ```
 
-#### 소비자 서비스 application.yml 설정
+#### 동작 흐름
+
+```
+Events.trigger(event)                         // 1. 도메인 서비스에서 호출
+  → ApplicationEventPublisher                 // 2. Spring 내부 채널로 전달
+    → OutboxEventListener (AFTER_COMMIT)       // 3. 트랜잭션 커밋 이후 실행
+        ├── p_outbox 테이블에 PENDING 저장     // 4. DB에 기록
+        └── Kafka 발행                         // 5. 발행 시도
+            ├── 성공 → PROCESSED
+            └── 실패 → FAILED
+                  ↑
+OutboxRelayScheduler (10초마다)                // 6. 실패 건 자동 재시도 (최대 3회)
+```
+
+#### application.yml Kafka 직렬화 설정
 
 ```yaml
 spring:
@@ -330,13 +416,14 @@ spring:
 
 ---
 
-## 5. Auto Configuration
+#Auto Configuration
 
 `spring-boot-autoconfigure`를 통해 **별도 `@Bean` 선언 없이** 자동으로 등록됩니다.
 
 | 설정 클래스 | 등록되는 빈 | 활성화 조건 |
 |---|---|---|
-| `CommonWebAutoConfiguration` | `GlobalExceptionHandler` | `spring-webmvc` 클래스패스에 존재할 때 |
+| `CommonWebAutoConfiguration` | `GlobalExceptionHandler`, Argument Resolvers | `spring-webmvc` 클래스패스에 존재할 때 |
 | `CommonKafkaAutoConfiguration` | `KafkaEventPublisher` | `spring-kafka` 클래스패스에 존재할 때 |
+| `CommonEventAutoConfiguration` | `Events`, `OutboxEventListener`, `OutboxRelayScheduler` | `spring-kafka` 클래스패스에 존재할 때 |
 
-Kafka를 사용하지 않는 서비스에서는 `spring-kafka` 의존성이 없으면 `KafkaEventPublisher`가 등록되지 않으므로 충돌 없이 사용할 수 있습니다.
+`spring-kafka` 의존성이 없으면 Kafka 관련 빈이 등록되지 않으므로 Kafka를 쓰지 않는 서비스에서는 충돌 없이 사용할 수 있습니다.
