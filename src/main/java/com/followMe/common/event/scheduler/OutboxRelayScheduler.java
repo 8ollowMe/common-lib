@@ -4,15 +4,14 @@ package com.followMe.common.event.scheduler;
 import com.followMe.common.event.outbox.Outbox;
 import com.followMe.common.event.outbox.OutboxRepository;
 import com.followMe.common.event.outbox.OutboxStatus;
+import com.followMe.common.event.outbox.OutboxStatusUpdater;
+import java.util.List;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
-import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.util.List;
-import java.util.UUID;
 
 @Slf4j
 @RequiredArgsConstructor
@@ -22,12 +21,13 @@ public class OutboxRelayScheduler {
 
 	private final OutboxRepository outboxRepository;
 	private final KafkaTemplate<String, Object> kafkaTemplate;
+	private final OutboxStatusUpdater outboxStatusUpdater;
 
 	@Scheduled(fixedDelay = 10_000)
 	@Transactional
 	public void relay() {
 		List<Outbox> targets =
-				outboxRepository.findByStatusInAndRetryCountLessThan(List.of(OutboxStatus.PENDING, OutboxStatus.FAILED),
+				outboxRepository.findByStatusInAndRetryCountLessThan(List.of(OutboxStatus.FAILED),
 						MAX_RETRY);
 
 		if (targets.isEmpty()) return;
@@ -37,23 +37,8 @@ public class OutboxRelayScheduler {
 		for (Outbox outbox : targets) {
 			UUID id = outbox.getId();
 			kafkaTemplate.send(outbox.getEventType(), outbox.getDomainId(), outbox.getPayload())
-					.whenComplete((result, ex) -> updateStatus(id, ex == null));
+					.whenComplete((result, ex) -> outboxStatusUpdater.update(id, ex == null));
 		}
 	}
 
-	@Transactional(propagation = Propagation.REQUIRES_NEW)
-	public void updateStatus(UUID id, boolean success) {
-		outboxRepository.findById(id)
-				.ifPresent(outbox -> {
-					if (success) {
-						outbox.complete();
-						log.info("[Outbox] 재전송 성공: {}", outbox.getCorrelationId());
-					}
-					else {
-						outbox.fail();
-						log.warn("[Outbox] 재전송 실패 ({}회): {}", outbox.getRetryCount(), outbox.getCorrelationId());
-					}
-					outboxRepository.saveAndFlush(outbox);
-				});
-	}
 }
