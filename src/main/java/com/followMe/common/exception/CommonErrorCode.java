@@ -24,7 +24,11 @@ public enum CommonErrorCode implements ErrorCode {
 
     // 5xx
     INTERNAL_SERVER_ERROR("C500", "서버 내부 오류가 발생했습니다.", HttpStatus.INTERNAL_SERVER_ERROR),
-    SERVICE_UNAVAILABLE("C503", "서비스를 일시적으로 사용할 수 없습니다.", HttpStatus.SERVICE_UNAVAILABLE);
+    SERVICE_UNAVAILABLE("C503", "서비스를 일시적으로 사용할 수 없습니다.", HttpStatus.SERVICE_UNAVAILABLE),
+    EVENT_PUBLISH_FAILURE("C510", "이벤트 발행에 실패했습니다.", HttpStatus.INTERNAL_SERVER_ERROR)
+
+    ;
+
 
     private final String code;
     private final String message;
