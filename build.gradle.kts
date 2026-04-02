@@ -61,6 +61,9 @@ dependencies {
     // ── Kafka (선택적 — 소비자가 spring-kafka 없으면 KafkaAutoConfig 비활성) ──
     compileOnly("org.springframework.kafka:spring-kafka")
 
+    // ── Swagger / OpenAPI (선택적 — 소비자가 springdoc 없으면 SwaggerAutoConfig 비활성) ──
+    compileOnly("org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.0")
+
     // ── Test ─────────────────────────────────────────────────────────────────
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation("org.springframework.boot:spring-boot-starter-web")

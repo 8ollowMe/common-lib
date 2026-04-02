@@ -283,6 +283,76 @@ spring:
 
 ---
 
+### Swagger / OpenAPI
+
+`springdoc-openapi-starter-webmvc-ui` 의존성이 있는 서비스에서만 자동 활성화됩니다.
+
+```kotlin
+implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.0")
+```
+
+자동으로 제공되는 것:
+- **Bearer JWT 인증 스키마** — Swagger UI에서 토큰 입력 가능
+- **PageRequest / CursorRequest 파라미터 자동 문서화** — `page`, `size`, `cursor` 쿼리 파라미터로 표시
+
+인증이 필요한 엔드포인트에 적용:
+
+```java
+@SecurityRequirement(name = "bearerAuth")
+@GetMapping("/me")
+public ResponseEntity<ApiResponse> getMyInfo() { ... }
+```
+
+서비스별 API 제목/설명은 각 서비스에서 `OpenAPI` 빈으로 직접 설정합니다.
+
+```java
+@Bean
+public OpenAPI openAPI() {
+    return new OpenAPI()
+        .info(new Info().title("My Service API").version("v1.0.0"));
+}
+```
+
+---
+
+### MDC 로깅
+
+별도 설정 없이 모든 요청에 자동으로 MDC 추적 정보가 주입됩니다.
+
+| MDC 필드 | 설명 |
+|---|---|
+| `traceId` | `X-Trace-Id` 헤더 또는 자동 생성 UUID 8자리 |
+| `userId` | `X-User-Id` 헤더 (API Gateway 주입) |
+| `method` | HTTP 메서드 |
+| `uri` | 요청 URI |
+
+ELK 연동 시 `logback-base.xml`을 제공합니다. 각 서비스 `logback-spring.xml`에서 include 해서 사용합니다.
+
+```kotlin
+// 추가 의존성
+implementation("com.github.danielwegener:logback-kafka-appender:0.2.0-RC2")
+implementation("net.logstash.logback:logstash-logback-encoder:8.0")
+```
+
+```xml
+<!-- logback-spring.xml -->
+<configuration>
+    <include resource="logback-base.xml"/>
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="ASYNC_KAFKA"/>
+    </root>
+</configuration>
+```
+
+`@Async` 사용 시 `MdcTaskDecorator`를 executor에 등록하면 자식 스레드에도 MDC가 전파됩니다.
+
+```java
+executor.setTaskDecorator(mdcTaskDecorator);
+```
+
+---
+
 ## 버전 히스토리
 
 | 버전 | 변경 내용 |

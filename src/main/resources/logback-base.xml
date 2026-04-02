@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  공통 logback 기반 설정. 각 서비스의 logback-spring.xml 에서 include 해서 사용합니다.
+
+  사용법:
+    <configuration>
+        <include resource="logback-base.xml"/>
+        <root level="INFO">
+            <appender-ref ref="CONSOLE"/>
+            <appender-ref ref="ASYNC_KAFKA"/>   ← Kafka 로그 전송이 필요한 경우
+        </root>
+    </configuration>
+
+  필요한 의존성 (각 서비스 build.gradle.kts):
+    implementation("com.github.danielwegener:logback-kafka-appender:0.2.0-RC2")
+    implementation("net.logstash.logback:logstash-logback-encoder:8.0")
+
+  환경 변수:
+    BOOTSTRAP_SERVERS  — Kafka 브로커 주소 (기본값: localhost:9092)
+    LOG_KAFKA_TOPIC    — 로그 전송 토픽    (기본값: app-logs)
+-->
+<included>
+    <springProperty scope="context" name="appName" source="spring.application.name" defaultValue="UNKNOWN"/>
+
+    <!-- 콘솔 출력 패턴: traceId / userId / method / uri 포함 -->
+    <property name="CONSOLE_LOG_PATTERN"
+              value="%d{yyyy-MM-dd HH:mm:ss.SSS} %magenta([%thread]) %highlight(%-5level) %cyan([${appName}]) %cyan([%X{traceId:-SYSTEM}]) %green([%X{userId:-}]) %yellow([%X{method:-} %X{uri:-}]) %logger{36} - %msg%n"/>
+
+    <!-- 콘솔 Appender -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>${CONSOLE_LOG_PATTERN}</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <!-- Kafka Appender — LogstashEncoder 로 JSON 직렬화 후 Kafka 토픽으로 전송 -->
+    <appender name="KAFKA" class="com.github.danielwegener.logback.kafka.KafkaAppender">
+        <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+            <includeMdc>true</includeMdc>
+            <customFields>{"service_name":"${appName}"}</customFields>
+        </encoder>
+
+        <topic>${LOG_KAFKA_TOPIC:-app-logs}</topic>
+        <producerConfig>bootstrap.servers=${BOOTSTRAP_SERVERS:-localhost:9092}</producerConfig>
+        <producerConfig>acks=1</producerConfig>
+        <producerConfig>linger.ms=1000</producerConfig>
+
+        <!-- Kafka 전송 실패 시 콘솔로 fallback -->
+        <fallbackAppenderRef ref="CONSOLE"/>
+    </appender>
+
+    <!-- 비동기 Kafka Appender — 로그 I/O 가 서비스 스레드를 블로킹하지 않도록 래핑 -->
+    <appender name="ASYNC_KAFKA" class="ch.qos.logback.classic.AsyncAppender">
+        <appender-ref ref="KAFKA"/>
+        <queueSize>512</queueSize>
+        <discardingThreshold>0</discardingThreshold>  <!-- 큐가 가득 차도 로그 버리지 않음 -->
+        <neverBlock>true</neverBlock>                 <!-- 큐 포화 시 블로킹 대신 드롭 -->
+        <maxFlushTime>5000</maxFlushTime>
+    </appender>
+</included>
