@@ -58,6 +58,9 @@ dependencies {
     api("com.fasterxml.jackson.core:jackson-databind:2.19.1")
     api("com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.19.1")
 
+    // ── Spring Boot Actuator (필수)
+    api("org.springframework.boot:spring-boot-starter-actuator")
+
     // ── Kafka (선택적 — 소비자가 spring-kafka 없으면 KafkaAutoConfig 비활성) ──
     compileOnly("org.springframework.kafka:spring-kafka")
 

@@ -56,7 +56,7 @@ public class OutboxEventListener {
 				.payload(payload)
 				.build());
 		UUID id = outbox.getId();
-		kafkaTemplate.send(event.getEventType(), event.getDomainId(), payload)
+		kafkaTemplate.send(event.getEventType(), event.getDomainId(), event)
 				.whenComplete((result, ex) -> outboxStatusUpdater.update(id, ex == null));
 	}
 }

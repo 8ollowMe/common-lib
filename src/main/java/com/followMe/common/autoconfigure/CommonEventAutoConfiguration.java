@@ -44,7 +44,8 @@ public class CommonEventAutoConfiguration {
   public OutboxRelayScheduler outboxRelayScheduler(
       OutboxRepository outboxRepository,
       KafkaTemplate<String, Object> kafkaTemplate,
-      OutboxStatusUpdater outboxStatusUpdater) {
-    return new OutboxRelayScheduler(outboxRepository, kafkaTemplate, outboxStatusUpdater);
+      OutboxStatusUpdater outboxStatusUpdater,
+      ObjectMapper objectMapper) {
+    return new OutboxRelayScheduler(outboxRepository, kafkaTemplate, outboxStatusUpdater, objectMapper);
   }
 }
